@@ -1,5 +1,6 @@
 from functools import lru_cache
 from typing import Literal
+import os
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -33,9 +34,16 @@ class Settings(BaseSettings):
     # --- Metrics ---
     metrics_enabled: bool = True
 
-    database_url: str = "postgresql+asyncpg://webhook:webhook@localhost:5432/webhook"
-    redis_url: str = "redis://localhost:6379/0"
-    kafka_bootstrap_servers: str = "localhost:9092"
+    # --- Database ---
+    database_url: str = os.getenv('WEBHOOK_DATABASE_URL', 'postgresql+asyncpg://webhook:webhook@localhost:5432/webhook')
+
+    # --- Message Queue ---
+    rabbitmq_url: str = "amqp://guest:guest@localhost:5672/"
+    webhook_queue_name: str = "webhook_events"
+
+    # --- Webhook Security ---
+    webhook_secret_key: str = os.getenv('WEBHOOK_SECRET_KEY', 'change-this-in-production')
+    webhook_signature_header: str = "X-Webhook-Signature"
 
     @property
     def is_local(self) -> bool:
