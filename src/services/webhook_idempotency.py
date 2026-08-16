@@ -67,9 +67,7 @@ class WebhookIdempotencyService:
         Returns:
             True if event exists, False otherwise
         """
-        statement = select(WebhookEvent).where(WebhookEvent.event_id == event_id)
-        result = await session.exec(statement)
-        event = result.first()
+        event = await self.get_event(session, event_id)
         return event is not None
 
     async def get_event(
