@@ -1,0 +1,35 @@
+import uuid
+from datetime import UTC, datetime
+
+from sqlmodel import Field, SQLModel
+
+
+class PaymentModel(SQLModel, table=True):
+    __tablename__ = "payments"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, index=True)
+    user_name: str = Field(index=True)
+    amount: float
+    payment_method: str
+    payment_date: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class InvoiceModel(SQLModel, table=True):
+    __tablename__ = "invoices"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, index=True)
+    user_name: str = Field(index=True)
+    invoice_number: str = Field(index=True, unique=True)
+    amount_due: float
+    due_date: datetime
+    issued_date: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class RefundModel(SQLModel, table=True):
+    __tablename__ = "refunds"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, index=True)
+    user_name: str = Field(index=True)
+    amount: float
+    refund_reason: str
+    refund_date: datetime = Field(default_factory=lambda: datetime.now(UTC))

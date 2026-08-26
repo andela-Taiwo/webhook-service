@@ -1,0 +1,37 @@
+version: '3.8'
+
+# Docker Compose configuration for running tests
+# Usage: docker-compose -f docker-compose.test.yml up --abort-on-container-exit
+# Tests use SQLite in-memory database (no PostgreSQL needed)
+
+services:
+  # Test Runner
+  test-runner:
+    build:
+      context: .
+      target: test
+      dockerfile: Dockerfile
+    container_name: webhook-test-runner
+    environment:
+      # Use SQLite in-memory database for tests
+      WEBHOOK_DATABASE_URL: "sqlite+aiosqlite:///:memory:"
+      WEBHOOK_ENVIRONMENT: test
+      WEBHOOK_SECRET_KEY: test-secret-key
+      # Disable external services for tests
+      WEBHOOK_OTEL_ENABLED: "false"
+      WEBHOOK_METRICS_ENABLED: "false"
+    volumes:
+      # Mount source for coverage reports
+      - ./htmlcov:/app/htmlcov
+      - ./coverage.xml:/app/coverage.xml
+    command: >
+      sh -c "
+        echo '=== Running Linter ===' &&
+        ruff check src/ tests/ &&
+        echo '' &&
+        echo '=== Running Tests ===' &&
+        pytest tests/ -v --cov=src --cov-report=term-missing --cov-report=html --cov-report=xml &&
+        echo '' &&
+        echo '=== Test Summary ===' &&
+        echo 'Coverage report generated in htmlcov/index.html'
+      "

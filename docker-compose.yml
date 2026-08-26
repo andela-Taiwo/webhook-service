@@ -1,0 +1,116 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: webhook-postgres
+    environment:
+      POSTGRES_USER: webhook
+      POSTGRES_PASSWORD: webhook
+      POSTGRES_DB: webhook
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U webhook"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - webhook-network
+
+  # RabbitMQ Message Queue
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: webhook-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: webhook
+      RABBITMQ_DEFAULT_PASS: webhook
+    ports:
+      - "5672:5672"   # AMQP port
+      - "15672:15672" # Management UI
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - webhook-network
+
+  # Webhook Service - Development
+  webhook-service:
+    build:
+      context: .
+      target: development
+      dockerfile: Dockerfile
+    container_name: webhook-service-dev
+    environment:
+      # Database
+      WEBHOOK_DATABASE_URL: postgresql+asyncpg://webhook:webhook@postgres:5432/webhook
+
+      # RabbitMQ
+      WEBHOOK_RABBITMQ_URL: amqp://webhook:webhook@rabbitmq:5672/
+
+      # Application
+      WEBHOOK_ENVIRONMENT: local
+      WEBHOOK_LOG_JSON: "false"
+      WEBHOOK_LOG_LEVEL: DEBUG
+
+      # Security
+      # WEBHOOK_SECRET_KEY: dev-secret-key-change-in-production
+      WEBHOOK_SECRET_KEY: ${WEBHOOK_SECRET_KEY:?WEBHOOK_SECRET_KEY required}
+
+      # Observability
+      WEBHOOK_OTEL_ENABLED: "false"
+      WEBHOOK_METRICS_ENABLED: "true"
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount source code for hot reload
+      - ./src:/app/src
+      - ./tests:/app/tests
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - webhook-network
+    command: >
+      sh -c "
+        echo 'Waiting for database...' &&
+        sleep 5 &&
+        echo 'Running migrations...' &&
+        alembic upgrade head &&
+        echo 'Starting development server...' &&
+        uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+      "
+
+  # Adminer - Database Management UI
+  adminer:
+    image: adminer:latest
+    container_name: webhook-adminer
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+    networks:
+      - webhook-network
+
+networks:
+  webhook-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  rabbitmq_data:
+    driver: local

@@ -1,0 +1,156 @@
+version: '3.8'
+
+# Production Docker Compose configuration
+# Usage: docker-compose -f docker-compose.prod.yml up -d
+
+services:
+  # PostgreSQL Database (Production)
+  postgres:
+    image: postgres:16-alpine
+    container_name: webhook-postgres-prod
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-webhook}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      POSTGRES_DB: ${POSTGRES_DB:-webhook}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data_prod:/var/lib/postgresql/data
+      # Enable performance tuning
+      - ./docker/postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-webhook}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - webhook-network-prod
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+
+  # RabbitMQ Message Queue (Production)
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: webhook-rabbitmq-prod
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-webhook}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD required}
+      RABBITMQ_VM_MEMORY_HIGH_WATERMARK: 1GB
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data_prod:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - webhook-network-prod
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # Webhook Service (Production)
+  webhook-service:
+    build:
+      context: .
+      target: runtime
+      dockerfile: Dockerfile
+    image: webhook-service:${VERSION:-latest}
+    container_name: webhook-service-prod
+    restart: unless-stopped
+    environment:
+      # Database
+      WEBHOOK_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-webhook}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-webhook}
+
+      # RabbitMQ
+      WEBHOOK_RABBITMQ_URL: amqp://${RABBITMQ_USER:-webhook}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+
+      # Application
+      WEBHOOK_ENVIRONMENT: production
+      WEBHOOK_LOG_JSON: "true"
+      WEBHOOK_LOG_LEVEL: INFO
+
+      # Security
+      WEBHOOK_SECRET_KEY: ${WEBHOOK_SECRET_KEY:?WEBHOOK_SECRET_KEY required}
+
+      # Observability
+      WEBHOOK_OTEL_ENABLED: "true"
+      WEBHOOK_OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_ENDPOINT:-http://localhost:4317}
+      WEBHOOK_METRICS_ENABLED: "true"
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - webhook-network-prod
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/api/v1/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Nginx Reverse Proxy (Production)
+  nginx:
+    image: nginx:alpine
+    container_name: webhook-nginx-prod
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - webhook-service
+    networks:
+      - webhook-network-prod
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+networks:
+  webhook-network-prod:
+    driver: bridge
+
+volumes:
+  postgres_data_prod:
+    driver: local
+  rabbitmq_data_prod:
+    driver: local

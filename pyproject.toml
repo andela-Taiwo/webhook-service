@@ -3,12 +3,25 @@ name = "webhook-service"
 version = "0.1.0"
 requires-python = ">=3.13"
 dependencies = [
+    "aio-pika>=10.0.1",
+    "alembic>=1.19.1",
+    "asyncpg>=0.31.0",
     "fastapi[standard]>=0.141.1",
+    "greenlet>=3.5.5",
+    "httpx>=0.28.1",
     "orjson>=3.11.9",
+    "psycopg[binary]>=3.3.4",
+    "sqlmodel>=0.0.39",
     "structlog>=26.1.0",
 ]
 
 [dependency-groups]
 dev = [
+    "aiosqlite>=0.22.1",
+    "faker>=40.36.0",
+    "httpx>=0.28.1",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "pytest-cov>=7.1.0",
     "ruff>=0.16.2",
 ]
