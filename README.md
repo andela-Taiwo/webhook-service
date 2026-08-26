@@ -56,7 +56,47 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-## Local Setup
+## Quick Start with Docker (Recommended)
+
+The fastest way to get started is using Docker Compose, which sets up everything automatically.
+
+### Prerequisites
+- Docker 20.10+
+- Docker Compose 2.0+
+
+### Start Everything
+
+```bash
+# Clone repository
+git clone <repository-url>
+cd webhook-service
+
+# Start all services (PostgreSQL, RabbitMQ, Webhook Service)
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Services will be available at:
+# - Webhook API: http://localhost:8000
+# - API Docs: http://localhost:8000/docs
+# - Adminer (DB UI): http://localhost:8080
+# - RabbitMQ Management: http://localhost:15672 (webhook/webhook)
+```
+
+### Using Makefile Commands
+
+```bash
+make help          # Show all available commands
+make up            # Start all services
+make logs          # View logs
+make test          # Run tests in Docker
+make migrate       # Run database migrations
+make shell         # Open shell in container
+make clean         # Stop and remove everything
+```
+
+## Local Setup (Without Docker)
 
 ### 1. Clone the Repository
 
@@ -246,32 +286,6 @@ alembic downgrade base
 alembic upgrade head
 ```
 
-## Project Structure
-
-```
-webhook-service/
-├── alembic/                    # Database migrations
-│   ├── versions/              # Migration files
-│   └── env.py                 # Alembic configuration
-├── src/
-│   ├── api/                   # API routes
-│   │   └── v1/
-│   │       └── endpoints/     # API endpoints
-│   ├── core/                  # Core configuration
-│   │   ├── config.py         # Settings
-│   │   └── logging.py        # Logging setup
-│   ├── db/                    # Database layer
-│   │   ├── database.py       # Engine & session
-│   │   ├── deps.py           # DB dependencies
-│   │   └── models/           # SQLModel models
-│   ├── middleware/            # FastAPI middleware
-│   ├── schema/               # Pydantic schemas
-│   └── services/             # Business logic
-├── .env                       # Environment variables (not in git)
-├── alembic.ini               # Alembic config
-├── pyproject.toml            # Project dependencies
-└── README.md                 # This file
-```
 
 ## Environment Variables
 
@@ -355,29 +369,6 @@ Content-Type: application/json
 - `401 Unauthorized` - Invalid or missing signature
 - `500 Internal Server Error` - Processing failed
 
-### Generating Webhook Signatures (for testing)
-
-```python
-import hmac
-import hashlib
-import json
-
-secret_key = "your-webhook-secret"
-payload = {
-    "id": "evt_test_123",
-    "type": "payment_intent.succeeded",
-    "data": {"object": {"amount": 5000, "customer_email": "test@example.com"}}
-}
-
-payload_str = json.dumps(payload, separators=(",", ":"))
-signature = hmac.new(
-    secret_key.encode(),
-    payload_str.encode(),
-    hashlib.sha256
-).hexdigest()
-
-print(f"X-Webhook-Signature: {signature}")
-```
 
 ### Testing the Webhook
 
@@ -416,48 +407,90 @@ pytest tests/test_webhook_processor.py -v
 pytest -n auto
 ```
 
-**Test Statistics:**
-- Total tests: 28
-- Pass rate: 100%
-- Runtime: ~0.5s
-- Coverage: Comprehensive
 
-## Troubleshooting
-
-### Database Connection Issues
-
-**Error**: `could not connect to server`
-
-**Solution**: Ensure PostgreSQL is running:
+#### Production (docker-compose.prod.yml)
 ```bash
-# Check if container is running
-docker ps
+# Set required environment variables
+export POSTGRES_PASSWORD=secure-password
+export RABBITMQ_PASSWORD=secure-password
+export WEBHOOK_SECRET_KEY=production-secret-key
 
-# Start container if stopped
-docker start webhook-postgres
+# Start production stack
+docker-compose -f docker-compose.prod.yml up -d
+
+# Scale webhook service
+docker-compose -f docker-compose.prod.yml up -d --scale webhook-service=3
 ```
 
-### Migration Issues
+### Common Docker Commands
 
-**Error**: `Can't locate revision identified by 'xxxxx'`
-
-**Solution**: Reset Alembic:
 ```bash
-# Delete alembic_version table
-psql -U webhook -d webhook -c "DROP TABLE IF EXISTS alembic_version;"
+# Development
+make up                # Start all services
+make down              # Stop all services
+make logs              # View all logs
+make logs-app          # View app logs only
+make shell             # Shell into container
+make restart           # Restart services
 
-# Rerun migrations
-alembic upgrade head
+# Database
+make migrate           # Run migrations
+make migrate-create MSG="add field"  # Create migration
+make db-reset          # Reset database
+make backup-db         # Backup database
+make shell-db          # PostgreSQL shell
+
+# Testing
+make test              # Run tests
+make lint              # Run linter
+make format            # Format code
+make coverage          # Generate coverage
+
+# Cleanup
+make clean             # Remove containers
+make clean-all         # Remove everything including images
 ```
 
-### Import Errors
+### Environment Variables for Docker
 
-**Error**: `ModuleNotFoundError: No module named 'src'`
+Create a `.env` file in the project root:
 
-**Solution**: Ensure virtual environment is activated and dependencies are installed:
+```env
+# Database
+POSTGRES_USER=webhook
+POSTGRES_PASSWORD=your-secure-password
+POSTGRES_DB=webhook
+
+# RabbitMQ
+RABBITMQ_USER=webhook
+RABBITMQ_PASSWORD=your-secure-password
+
+# Application
+WEBHOOK_SECRET_KEY=your-webhook-secret-key
+WEBHOOK_ENVIRONMENT=production
+WEBHOOK_LOG_LEVEL=INFO
+
+# Optional
+VERSION=1.0.0
+OTEL_ENDPOINT=http://otel-collector:4317
+```
+
+### Health Checks
+
+All services include health checks:
+
 ```bash
-source .venv/bin/activate
-uv sync
+# Check webhook service health
+curl http://localhost:8000/api/v1/health
+
+# Check PostgreSQL
+docker-compose exec postgres pg_isready -U webhook
+
+# Check RabbitMQ
+docker-compose exec rabbitmq rabbitmq-diagnostics ping
+
+# Check all services
+make health
 ```
 
 ## Future Enhancements
@@ -509,45 +542,3 @@ The following features are planned for future releases:
 - **Kubernetes manifests**: Production-ready K8s deployment
 - **Helm charts**: Simplified K8s deployments
 - **CI/CD pipelines**: Automated testing and deployment
-
-### Implementation Priority
-
-**Phase 1 (High Priority)**
-1. RabbitMQ retry queue integration
-2. Prometheus metrics
-3. Rate limiting
-4. Docker Compose setup
-
-**Phase 2 (Medium Priority)**
-1. Webhook replay functionality
-2. Web UI for webhook history
-3. Event simulator
-4. OpenTelemetry tracing
-
-**Phase 3 (Future)**
-1. Advanced caching
-2. Batch processing
-3. Plugin system
-4. Kubernetes deployment
-
-## Contributing
-
-1. Create a feature branch
-2. Make your changes
-3. Run linter: `ruff check . --fix`
-4. Format code: `ruff format .`
-5. Create migration if models changed: `alembic revision --autogenerate -m "description"`
-6. Run tests: `pytest`
-7. Submit a pull request
-
-**Code Quality Standards:**
-- Maintain 100% test coverage for new features
-- Follow TDD approach (tests first)
-- Use type hints throughout
-- Write comprehensive docstrings
-- Keep functions focused and small
-- Follow the existing architecture patterns
-
-## License
-
-[Your License Here]

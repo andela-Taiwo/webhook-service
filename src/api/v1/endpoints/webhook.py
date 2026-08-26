@@ -1,8 +1,8 @@
 """Webhook endpoint for processing incoming webhook events."""
 
-from typing import Dict, Any
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Header, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.api.v1.schemas.event import Event
@@ -10,7 +10,7 @@ from src.core.config import settings
 from src.core.logging import get_logger
 from src.db.deps import get_session
 from src.services.webhook_idempotency import WebhookIdempotencyService
-from src.services.webhook_processor import WebhookProcessor, WebhookProcessingError
+from src.services.webhook_processor import WebhookProcessingError, WebhookProcessor
 from src.services.webhook_security import WebhookSecurityService
 
 router = APIRouter(tags=["webhooks"])
@@ -22,13 +22,27 @@ idempotency_service = WebhookIdempotencyService()
 processor = WebhookProcessor()
 
 
+async def get_raw_body(request: Request) -> bytes:
+    """
+    Extract raw body from request before FastAPI consumes it.
+
+    Args:
+        request: FastAPI request object
+
+    Returns:
+        Raw request body as bytes
+    """
+    return await request.body()
+
+
 @router.post("/webhooks", status_code=status.HTTP_200_OK)
 async def receive_webhook(
     request: Request,
-    event: Event,
     session: AsyncSession = Depends(get_session),
-    x_webhook_signature: str | None = Header(None, alias=settings.webhook_signature_header),
-) -> Dict[str, Any]:
+    x_webhook_signature: str | None = Header(
+        None, alias=settings.webhook_signature_header
+    ),
+) -> dict[str, Any]:
     """
     Receive and process incoming webhook events.
 
@@ -38,7 +52,6 @@ async def receive_webhook(
 
     Args:
         request: FastAPI request object
-        event: Webhook event payload
         session: Database session
         x_webhook_signature: Webhook signature header
 
@@ -48,18 +61,21 @@ async def receive_webhook(
     Raises:
         HTTPException: For security or processing failures
     """
-    event_id = event.id
-    event_type = event.type
-
-    logger.info(f"Received webhook event {event_id} of type {event_type}")
-
-    # Step 1: Verify webhook signature
+    # Step 1: Get raw body for signature verification
     try:
         body = await request.body()
         payload_str = body.decode("utf-8")
+    except Exception as e:
+        logger.error(f"Failed to read request body: {e!s}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to read request body",
+        )
 
+    # Step 2: Verify webhook signature BEFORE parsing
+    try:
         if not security_service.verify_signature(payload_str, x_webhook_signature):
-            logger.warning(f"Invalid signature for event {event_id}")
+            logger.warning("Invalid signature for webhook")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid webhook signature",
@@ -67,13 +83,30 @@ async def receive_webhook(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Signature verification failed: {str(e)}")
+        logger.error(f"Signature verification failed: {e!s}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Signature verification failed",
         )
 
-    # Step 2: Check for duplicate event (idempotency)
+    # Step 3: Parse the event payload
+    try:
+        import json
+        event_data = json.loads(payload_str)
+        event = Event(**event_data)
+    except Exception as e:
+        logger.error(f"Failed to parse event payload: {e!s}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid event payload",
+        )
+
+    event_id = event.id
+    event_type = event.type
+
+    logger.info(f"Received webhook event {event_id} of type {event_type}")
+
+    # Step 4: Check for duplicate event (idempotency)
     try:
         is_duplicate = await idempotency_service.is_duplicate(
             session=session, event_id=event_id
@@ -98,21 +131,21 @@ async def receive_webhook(
 
     except Exception as e:
         await session.rollback()
-        logger.error(f"Idempotency check failed: {str(e)}")
+        logger.error(f"Idempotency check failed: {e!s}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to check event idempotency",
         )
 
-    # Step 3: Mark event as processing
+    # Step 5: Mark event as processing
     try:
         await idempotency_service.mark_processing(session=session, event_id=event_id)
         await session.commit()
     except Exception as e:
         await session.rollback()
-        logger.error(f"Failed to mark event as processing: {str(e)}")
+        logger.error(f"Failed to mark event as processing: {e!s}")
 
-    # Step 4: Process the webhook event
+    # Step 6: Process the webhook event
     try:
         result = await processor.process_event(
             session=session, event=event.model_dump()
@@ -139,7 +172,7 @@ async def receive_webhook(
         )
         await session.commit()
 
-        logger.error(f"Webhook processing failed for {event_id}: {str(e)}")
+        logger.error(f"Webhook processing failed for {event_id}: {e!s}")
 
         # Check if should retry
         should_retry = await idempotency_service.should_retry(
@@ -152,12 +185,12 @@ async def receive_webhook(
 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Webhook processing failed: {str(e)}",
+            detail=f"Webhook processing failed: {e!s}",
         )
 
     except Exception as e:
         await session.rollback()
-        logger.error(f"Unexpected error processing event {event_id}: {str(e)}")
+        logger.error(f"Unexpected error processing event {event_id}: {e!s}")
 
         try:
             await idempotency_service.mark_failed(

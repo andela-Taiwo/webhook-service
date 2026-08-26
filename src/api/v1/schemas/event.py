@@ -1,5 +1,5 @@
+from typing import Any
 
-from typing import Any, Dict
 from pydantic import BaseModel
 
 
@@ -8,7 +8,7 @@ class Event(BaseModel):
 
     id: str
     type: str
-    data: Dict[str, Any]
+    data: dict[str, Any]
 
     class Config:
         json_schema_extra = {

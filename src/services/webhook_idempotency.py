@@ -1,7 +1,6 @@
 """Webhook idempotency service for preventing duplicate processing."""
 
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -72,7 +71,7 @@ class WebhookIdempotencyService:
 
     async def get_event(
         self, session: AsyncSession, event_id: str
-    ) -> Optional[WebhookEvent]:
+    ) -> WebhookEvent | None:
         """
         Get webhook event by ID.
 
@@ -89,7 +88,7 @@ class WebhookIdempotencyService:
 
     async def mark_processing(
         self, session: AsyncSession, event_id: str
-    ) -> Optional[WebhookEvent]:
+    ) -> WebhookEvent | None:
         """
         Mark event as currently being processed.
 
@@ -103,14 +102,14 @@ class WebhookIdempotencyService:
         event = await self.get_event(session, event_id)
         if event:
             event.status = WebhookEventStatus.PROCESSING
-            event.updated_at = datetime.now(timezone.utc)
+            event.updated_at = datetime.now(UTC)
             session.add(event)
             await session.flush()
         return event
 
     async def mark_completed(
         self, session: AsyncSession, event_id: str
-    ) -> Optional[WebhookEvent]:
+    ) -> WebhookEvent | None:
         """
         Mark event as successfully completed.
 
@@ -124,15 +123,15 @@ class WebhookIdempotencyService:
         event = await self.get_event(session, event_id)
         if event:
             event.status = WebhookEventStatus.COMPLETED
-            event.processed_at = datetime.now(timezone.utc)
-            event.updated_at = datetime.now(timezone.utc)
+            event.processed_at = datetime.now(UTC)
+            event.updated_at = datetime.now(UTC)
             session.add(event)
             await session.flush()
         return event
 
     async def mark_failed(
         self, session: AsyncSession, event_id: str, error_message: str
-    ) -> Optional[WebhookEvent]:
+    ) -> WebhookEvent | None:
         """
         Mark event as failed and increment retry count.
 
@@ -149,7 +148,7 @@ class WebhookIdempotencyService:
             event.status = WebhookEventStatus.FAILED
             event.last_error = error_message
             event.retry_count += 1
-            event.updated_at = datetime.now(timezone.utc)
+            event.updated_at = datetime.now(UTC)
             session.add(event)
             await session.flush()
         return event

@@ -1,8 +1,6 @@
 """Webhook security service for signature verification."""
-
-import hmac
 import hashlib
-from typing import Optional
+import hmac
 
 
 class WebhookSecurityService:
@@ -41,7 +39,7 @@ class WebhookSecurityService:
         )
         return signature.hexdigest()
 
-    def verify_signature(self, payload: str, provided_signature: Optional[str]) -> bool:
+    def verify_signature(self, payload: str, provided_signature: str | None) -> bool:
         """
         Verify webhook signature using timing-safe comparison.
 
@@ -56,6 +54,5 @@ class WebhookSecurityService:
             return False
 
         expected_signature = self.generate_signature(payload)
-
         # Use timing-safe comparison to prevent timing attacks
         return hmac.compare_digest(expected_signature, provided_signature)

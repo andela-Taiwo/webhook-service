@@ -5,6 +5,7 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 from sqlmodel import SQLModel
+import sqlmodel.sql.sqltypes
 
 from alembic import context
 
@@ -12,7 +13,13 @@ from alembic import context
 from src.core.config import settings
 
 # Import all models so Alembic can detect them for autogenerate
-from src.db.models import PaymentModel, InvoiceModel, RefundModel  # noqa: F401
+from src.db.models import (  # noqa: F401
+    PaymentModel,
+    InvoiceModel,
+    RefundModel,
+    SubscriptionModel,
+    WebhookEvent,
+)
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

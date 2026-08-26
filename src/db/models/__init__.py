@@ -5,8 +5,8 @@ from src.db.models.subscription import SubscriptionModel
 from src.db.models.webhook_event import WebhookEvent, WebhookEventStatus
 
 __all__ = [
-    "PaymentModel",
     "InvoiceModel",
+    "PaymentModel",
     "RefundModel",
     "SubscriptionModel",
     "WebhookEvent",

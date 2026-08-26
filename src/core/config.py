@@ -1,6 +1,6 @@
+import os
 from functools import lru_cache
 from typing import Literal
-import os
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -35,14 +35,20 @@ class Settings(BaseSettings):
     metrics_enabled: bool = True
 
     # --- Database ---
-    database_url: str = os.getenv('WEBHOOK_DATABASE_URL', 'postgresql+asyncpg://webhook:webhook@localhost:5432/webhook')
+    database_url: str = os.getenv(
+        "WEBHOOK_DATABASE_URL",
+        "postgresql+asyncpg://webhook:webhook@localhost:5432/webhook",
+    )
 
     # --- Message Queue ---
     rabbitmq_url: str = "amqp://guest:guest@localhost:5672/"
     webhook_queue_name: str = "webhook_events"
 
     # --- Webhook Security ---
-    webhook_secret_key: str = os.getenv('WEBHOOK_SECRET_KEY', 'change-this-in-production')
+    webhook_secret_key: str = os.getenv(
+        "WEBHOOK_SECRET_KEY", "change-this-in-production"
+    )
+    print(f"Using webhook secret key: {webhook_secret_key}")
     webhook_signature_header: str = "X-Webhook-Signature"
 
     @property

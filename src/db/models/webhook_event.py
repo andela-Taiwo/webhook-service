@@ -1,12 +1,12 @@
 """Webhook event model for idempotency and tracking."""
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
-from typing import Optional
 
-from sqlalchemy import Column as SAColumn, DateTime
-from sqlmodel import Column, Field, JSON, SQLModel
+from sqlalchemy import Column as SAColumn
+from sqlalchemy import DateTime
+from sqlmodel import JSON, Column, Field, SQLModel
 
 
 class WebhookEventStatus(str, Enum):
@@ -37,16 +37,16 @@ class WebhookEvent(SQLModel, table=True):
     status: WebhookEventStatus = Field(default=WebhookEventStatus.PENDING, index=True)
     retry_count: int = Field(default=0)
     max_retries: int = Field(default=3)
-    last_error: Optional[str] = None
-    processed_at: Optional[datetime] = Field(
+    last_error: str | None = None
+    processed_at: datetime | None = Field(
         default=None, sa_column=SAColumn(DateTime(timezone=True))
     )
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(UTC),
         sa_column=SAColumn(DateTime(timezone=True)),
     )
     updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(UTC),
         sa_column=SAColumn(DateTime(timezone=True)),
     )
 

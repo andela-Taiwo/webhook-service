@@ -1,25 +1,25 @@
 """Webhook event processor for routing events to appropriate handlers."""
 
-from datetime import datetime, timezone
-from typing import Any, Callable, Dict, Optional
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import Any
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from src.core.logging import get_logger
 from src.db.models import (
     InvoiceModel,
     PaymentModel,
     RefundModel,
     SubscriptionModel,
 )
-from src.core.logging import get_logger
 
 logger = get_logger(__name__)
 
 
 class WebhookProcessingError(Exception):
     """Raised when webhook event processing fails."""
-
-    pass
+    # pass
 
 
 class WebhookProcessor:
@@ -35,7 +35,7 @@ class WebhookProcessor:
 
     def __init__(self):
         """Initialize webhook processor with event type handlers."""
-        self._handlers: Dict[str, Callable] = {
+        self._handlers: dict[str, Callable] = {
             "payment_intent.succeeded": self._handle_payment_succeeded,
             "invoice.created": self._handle_invoice_created,
             "invoice.payment_succeeded": self._handle_invoice_created,
@@ -45,8 +45,8 @@ class WebhookProcessor:
         }
 
     async def process_event(
-        self, session: AsyncSession, event: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, session: AsyncSession, event: dict[str, Any]
+    ) -> dict[str, Any]:
         """
         Process webhook event and route to appropriate handler.
 
@@ -96,12 +96,13 @@ class WebhookProcessor:
         except Exception as e:
             # Rollback transaction on error
             await session.rollback()
-            logger.error(f"Error processing event {event_id}: {str(e)}")
+            # logger.error(f"Error processing event {event_id}: {str(e)}")
+            logger.error(f"Error processing event {event_id}: {e!s}")
             raise WebhookProcessingError(
-                f"Failed to process event {event_id}: {str(e)}"
+                f"Failed to process event {event_id}: {e!s}"
             ) from e
 
-    def _get_handler(self, event_type: str) -> Optional[Callable]:
+    def _get_handler(self, event_type: str) -> Callable| None:
         """
         Get handler function for event type.
 
@@ -114,7 +115,7 @@ class WebhookProcessor:
         return self._handlers.get(event_type)
 
     async def _handle_payment_succeeded(
-        self, session: AsyncSession, event: Dict[str, Any]
+        self, session: AsyncSession, event: dict[str, Any]
     ) -> PaymentModel:
         """
         Handle payment_intent.succeeded event.
@@ -136,7 +137,7 @@ class WebhookProcessor:
                 user_name=self._extract_customer_email(data),
                 amount=self._convert_amount_from_cents(data["amount"]),
                 payment_method=data.get("payment_method", "unknown"),
-                payment_date=datetime.now(timezone.utc),
+                payment_date=datetime.now(UTC),
             )
 
             session.add(payment)
@@ -149,7 +150,7 @@ class WebhookProcessor:
             raise WebhookProcessingError(f"Missing required field: {e}") from e
 
     async def _handle_invoice_created(
-        self, session: AsyncSession, event: Dict[str, Any]
+        self, session: AsyncSession, event: dict[str, Any]
     ) -> InvoiceModel:
         """
         Handle invoice.created event.
@@ -176,16 +177,16 @@ class WebhookProcessor:
                     )
                 else:
                     # Unix timestamp
-                    due_date = datetime.fromtimestamp(due_date_str, tz=timezone.utc)
+                    due_date = datetime.fromtimestamp(due_date_str, tz=UTC)
             else:
-                due_date = datetime.now(timezone.utc)
+                due_date = datetime.now(UTC)
 
             invoice = InvoiceModel(
                 user_name=self._extract_customer_email(data),
                 invoice_number=data.get("invoice_number", data["id"]),
                 amount_due=self._convert_amount_from_cents(data["amount_due"]),
                 due_date=due_date,
-                issued_date=datetime.now(timezone.utc),
+                issued_date=datetime.now(UTC),
             )
 
             session.add(invoice)
@@ -198,7 +199,7 @@ class WebhookProcessor:
             raise WebhookProcessingError(f"Missing required field: {e}") from e
 
     async def _handle_refund_created(
-        self, session: AsyncSession, event: Dict[str, Any]
+        self, session: AsyncSession, event: dict[str, Any]
     ) -> RefundModel:
         """
         Handle charge.refunded event.
@@ -220,7 +221,7 @@ class WebhookProcessor:
                 user_name=self._extract_customer_email(data),
                 amount=self._convert_amount_from_cents(data["amount"]),
                 refund_reason=data.get("reason", "no_reason_provided"),
-                refund_date=datetime.now(timezone.utc),
+                refund_date=datetime.now(UTC),
             )
 
             session.add(refund)
@@ -233,7 +234,7 @@ class WebhookProcessor:
             raise WebhookProcessingError(f"Missing required field: {e}") from e
 
     async def _handle_subscription_created(
-        self, session: AsyncSession, event: Dict[str, Any]
+        self, session: AsyncSession, event: dict[str, Any]
     ) -> SubscriptionModel:
         """
         Handle customer.subscription.created event.
@@ -258,7 +259,7 @@ class WebhookProcessor:
             subscription = SubscriptionModel(
                 user_name=self._extract_customer_email(data),
                 monthly_fee=monthly_fee,
-                subscription_date=datetime.now(timezone.utc),
+                subscription_date=datetime.now(UTC),
             )
 
             session.add(subscription)
@@ -270,7 +271,7 @@ class WebhookProcessor:
         except KeyError as e:
             raise WebhookProcessingError(f"Missing required field: {e}") from e
 
-    def _extract_customer_email(self, data: Dict[str, Any]) -> str:
+    def _extract_customer_email(self, data: dict[str, Any]) -> str:
         """
         Extract customer email from event data.
 

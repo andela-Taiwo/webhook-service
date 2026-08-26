@@ -1,7 +1,9 @@
 import logging
 import sys
-import structlog
+
 import orjson
+import structlog
+
 from .config import settings
 from .context import get_request_id
 
